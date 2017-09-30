@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+
+import gzip
+from   hashlib import sha256
+from   os import walk, lstat, link, unlink
+from   os.path import join
+from   sys import argv, stderr
+
+def get_files():
+    result = []
+    for dir, subdirs, files in walk(argv[1]):
+        for f in files:
+            if not f.endswith(".gz"):
+                continue
+            ff = join(dir, f)
+            s = lstat(ff)
+            result.append(
+                { "filename": ff,
+                  "mtime": s.st_mtime,
+                  "dev": s.st_dev,
+                  "ino": s.st_ino,
+                })
+    result.sort(key=lambda x: x["mtime"])
+    return result
+
+def get_hash(filename):
+    hash = sha256()
+    with gzip.open(filename) as fh:
+        for chunk in iter(lambda: fh.read(0x10000), b""):
+            hash.update(chunk)
+    return hash.hexdigest()
+
+def dedupgz(files):
+    files_by_devino = {}
+    files_by_hash = {}
+
+    for file in files:
+        if (file["dev"], file["ino"]) in files_by_devino:
+            print("%s already seen (%d/%d), skipping" % (file["filename"], file["dev"], file["ino"]),
+                  file=stderr)
+            continue
+        hash = get_hash(file["filename"])
+        if hash in files_by_hash and file["dev"] == files_by_hash[hash]["dev"]:
+            print("%s already seen (%s), replacing" % (file["filename"], hash),
+                  file=stderr)
+            unlink(file["filename"])
+            link(files_by_hash[hash]["filename"], file["filename"])
+            continue
+        print("%s is new (%d/%d, %s)" % (file["filename"], file["dev"], file["ino"], hash),
+              file=stderr)
+        files_by_devino[(file["dev"], file["ino"])] = file
+        files_by_hash[hash] = file
+
+dedupgz(get_files())
+
+
+# vim: tw=99 sw=4 expandtab
