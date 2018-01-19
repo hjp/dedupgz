@@ -30,6 +30,7 @@ def get_hash(filename):
             hash.update(chunk)
     return hash.hexdigest()
 
+
 def dedupgz(files):
     files_by_devino = {}
     files_by_hash = {}
@@ -39,17 +40,22 @@ def dedupgz(files):
             print("%s already seen (%d/%d), skipping" % (file["filename"], file["dev"], file["ino"]),
                   file=stderr)
             continue
-        hash = get_hash(file["filename"])
-        if hash in files_by_hash and file["dev"] == files_by_hash[hash]["dev"]:
-            print("%s already seen (%s), replacing" % (file["filename"], hash),
+        try:
+            hash = get_hash(file["filename"])
+            if hash in files_by_hash and file["dev"] == files_by_hash[hash]["dev"]:
+                print("%s already seen (%s), replacing" % (file["filename"], hash),
+                      file=stderr)
+                unlink(file["filename"])
+                link(files_by_hash[hash]["filename"], file["filename"])
+                continue
+            print("%s is new (%d/%d, %s)" % (file["filename"], file["dev"], file["ino"], hash),
                   file=stderr)
-            unlink(file["filename"])
-            link(files_by_hash[hash]["filename"], file["filename"])
-            continue
-        print("%s is new (%d/%d, %s)" % (file["filename"], file["dev"], file["ino"], hash),
-              file=stderr)
-        files_by_devino[(file["dev"], file["ino"])] = file
-        files_by_hash[hash] = file
+            files_by_devino[(file["dev"], file["ino"])] = file
+            files_by_hash[hash] = file
+        except EOFError:
+            print("%s is truncated, ignoring" % (file["filename"]),
+                  file=stderr)
+
 
 dedupgz(get_files())
 
